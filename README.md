@@ -75,7 +75,9 @@ Output: output/task_generation/gitlab-workflows/
 The agent samples `webarena_benchmarks/webarena.jsonl` for realistic workflow
 and question patterns. It uses those rows only as inspiration: generated tasks
 must not copy or lightly paraphrase benchmark questions. Hub schemas, routes,
-and state remain the ground truth.
+implementation, mutation handlers, and seeded state JSON remain the ground
+truth. The agent reads relevant files under `./hub/websites/<app>/` to ensure
+each proposed workflow and entity is actually supported, but never edits Hub.
 
 Generated bundles are saved as:
 

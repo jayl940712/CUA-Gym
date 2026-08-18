@@ -41,8 +41,35 @@ If output is omitted, derive a short topic slug and use
    - `SCHEMA.md`
    - `ROUTES.md`
    - `assets/task_anchors*.json`
-4. Inspect the mock's default state or frozen data when exact entity identifiers
-   and values are needed.
+4. Inspect the implementation under `./hub/websites/<app>/`:
+   - `src/context/` or the app's state store to see the real mutation handlers;
+   - `src/utils/dataManager.*` to understand initialization and persistence;
+   - `src/data/**/*.json` and other seed modules for real entity IDs, names,
+     relationships, and baseline values;
+   - relevant `src/pages/` and `src/components/` files to confirm the UI control,
+     route, validation, and workflow actually exist;
+   - `vite.config.*` only when the state API or file behavior affects setup.
+5. Inspect the mock's default state and frozen data whenever exact identifiers,
+   relationships, or expected values are needed. Prefer targeted search over
+   loading an entire large JSON corpus.
+
+## Hub implementation and state rules
+
+- `./hub/` is authoritative for what tasks are possible. Source code may be
+  read during task construction.
+- Trace every proposed action from its visible UI control to its state mutation.
+  Do not assume that a button, route, or field works because it appears in a
+  benchmark question.
+- Build initial-state fixtures using the exact shape expected by
+  `createInitialData()` and the app's context/store. Include every required
+  top-level key.
+- Reuse real seeded IDs and relationships. Do not invent an entity that the UI
+  cannot resolve or render.
+- Use implementation details to construct valid setup and deterministic ground
+  truth, but never make `reward.py` check hidden implementation traces. Rewards
+  must check user-visible end state: persisted records, values, URLs, or declared
+  DOM observations.
+- Do not edit files under `./hub/` while authoring tasks.
 
 ## Inspiration rules
 
