@@ -13,12 +13,11 @@ which rejects ~3,100 tasks before the teacher-rollout filtering stage.
 Task directory layout expected under --tasks-dir:
     <tasks-dir>/
       <task-id>/
-        config.json          # contains 'instruction', written back with filter fields
-        initial_setup.py
-        golden_patch.py
-        reward.py
+        task.json            # instruction, apps, and evidence contract
+        reward.py            # deterministic programmatic reward
+        verification.json    # optional Playwright validation evidence
 
-Filter fields written to config.json:
+Filter fields written to task.json:
   - reject (bool)            true if majority vote says reject
   - train_poor_fit (bool)    true if majority training_pool_fit == 'poor'
   - revised_query (str)      present only when majority says modify_query
@@ -27,19 +26,21 @@ Usage:
     export OPENAI_API_KEY='sk-...'
 
     # Dry run (count pending tasks):
-    python majority_vote_filter.py --tasks-dir output/final --dry-run
+    python majority_vote_filter.py --tasks-dir output/webarena_tasks --dry-run
 
     # Run with 3 votes per task, write results:
-    python majority_vote_filter.py --tasks-dir output/final --votes 3 --write
+    python majority_vote_filter.py --tasks-dir output/webarena_tasks --votes 3 --write
 
-    # Filter a specific app type only:
-    python majority_vote_filter.py --tasks-dir output/final --votes 3 --write \\
-        --app-type libreoffice_calc
+    # Filter a specific site only:
+    python majority_vote_filter.py --tasks-dir output/webarena_tasks --votes 3 --write \\
+        --app-type gitlab
 
     # Use a different model:
-    python majority_vote_filter.py --tasks-dir output/final --votes 3 --write \\
+    python majority_vote_filter.py --tasks-dir output/webarena_tasks --votes 3 --write \\
         --model claude-opus-4-7
 """
+from __future__ import annotations
+
 import argparse
 import asyncio
 import json
@@ -47,13 +48,14 @@ import os
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Any
-
-from openai import AsyncOpenAI
+from typing import TYPE_CHECKING, Any
 
 from critic_prompt import SYSTEM_PROMPT, build_user_prompt
 
-_DEFAULT_TASKS_DIR = Path(__file__).resolve().parent.parent / 'output' / 'final'
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+
+_DEFAULT_TASKS_DIR = Path(__file__).resolve().parent.parent / 'output' / 'webarena_tasks'
 
 
 # ---------------------------------------------------------------------------
@@ -61,16 +63,29 @@ _DEFAULT_TASKS_DIR = Path(__file__).resolve().parent.parent / 'output' / 'final'
 # ---------------------------------------------------------------------------
 
 def load_task_bundle(task_dir: Path) -> dict[str, str]:
-    config = json.loads((task_dir / 'config.json').read_text())
+    task = json.loads((task_dir / 'task.json').read_text())
+    verification_paths = sorted(task_dir.glob('**/verification.json'), reverse=True)
+    verification = (
+        verification_paths[0].read_text(errors='ignore')
+        if verification_paths
+        else ''
+    )
     return {
         'task_id': task_dir.name,
-        'query': config.get('instruction', ''),
-        'setup': (task_dir / 'initial_setup.py').read_text(errors='ignore')
-                 if (task_dir / 'initial_setup.py').exists() else '',
-        'golden_setup': (task_dir / 'golden_patch.py').read_text(errors='ignore')
-                        if (task_dir / 'golden_patch.py').exists() else '',
-        'reward': (task_dir / 'reward.py').read_text(errors='ignore')
-                  if (task_dir / 'reward.py').exists() else '',
+        'query': task.get('instruction', ''),
+        'setup': json.dumps(
+            {
+                'apps': task.get('apps', []),
+                'evidence': task.get('evidence', []),
+                'metadata': task.get('metadata', {}),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        'golden_setup': verification,
+        'reward': (task_dir / task.get('reward_path', 'reward.py')).read_text(
+            errors='ignore'
+        ),
     }
 
 
@@ -194,7 +209,7 @@ async def process_task(
     agg = aggregate_votes(list(votes))
 
     if write:
-        config_path = task_dir / 'config.json'
+        config_path = task_dir / 'task.json'
         config = json.loads(config_path.read_text())
         config['reject'] = (agg['verdict'] == 'reject')
         config['train_poor_fit'] = agg['train_poor_fit']
@@ -258,7 +273,7 @@ async def main() -> None:
     )
     parser.add_argument(
         '--tasks-dir', type=Path, default=_DEFAULT_TASKS_DIR,
-        help='Directory of per-task folders (default: output/final)',
+        help='Directory of imported task folders (default: output/webarena_tasks)',
     )
     parser.add_argument(
         '--model', default='gpt-4o',
@@ -274,7 +289,7 @@ async def main() -> None:
     )
     parser.add_argument(
         '--write', action='store_true',
-        help='Write filter results back to each task\'s config.json',
+        help='Write filter results back to each task\'s task.json',
     )
     parser.add_argument(
         '--force', action='store_true',
@@ -282,7 +297,7 @@ async def main() -> None:
     )
     parser.add_argument(
         '--app-type', default='',
-        help='Only process tasks whose config app_type matches (e.g. libreoffice_calc)',
+        help='Only process tasks containing this source site (e.g. gitlab)',
     )
     parser.add_argument(
         '--limit', type=int, default=0,
@@ -305,15 +320,16 @@ async def main() -> None:
     # Collect pending tasks
     all_dirs = sorted(
         d for d in tasks_dir.iterdir()
-        if d.is_dir() and (d / 'config.json').exists()
+        if d.is_dir() and (d / 'task.json').exists()
     )
     pending: list[Path] = []
     for d in all_dirs:
         try:
-            cfg = json.loads((d / 'config.json').read_text())
+            cfg = json.loads((d / 'task.json').read_text())
         except Exception:
             continue
-        if args.app_type and cfg.get('app_type') != args.app_type:
+        sites = {app.get('source_name') for app in cfg.get('apps', [])}
+        if args.app_type and args.app_type not in sites:
             continue
         if not args.force and is_already_filtered(cfg):
             continue
@@ -333,6 +349,8 @@ async def main() -> None:
         print('Nothing to do.')
         return
 
+    from openai import AsyncOpenAI
+
     print(
         f'Starting majority-vote filter: model={args.model}, votes={args.votes}, '
         f'concurrency={args.concurrency}, write={args.write}',
@@ -343,7 +361,7 @@ async def main() -> None:
     sem = asyncio.Semaphore(args.concurrency)
     tracker = ProgressTracker(len(pending))
 
-    results = await asyncio.gather(*(
+    await asyncio.gather(*(
         process_task(client, args.model, sem, d, args.votes, args.write, tracker)
         for d in pending
     ))
