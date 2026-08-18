@@ -33,10 +33,10 @@ HUB = "http://198.51.100.7"
 
 
 def test_app_ports_are_contiguous_and_complete() -> None:
-    assert len(APP_DIRS) == 98
+    assert len(APP_DIRS) == 5
     assert APP_DIRS == sorted(APP_DIRS)
     assert app_port(APP_DIRS[0], 8000) == 8000
-    assert app_port(APP_DIRS[-1], 8000) == 8097
+    assert app_port(APP_DIRS[-1], 8000) == 8004
 
 
 def test_placeholders_resolve_to_deployed_apps() -> None:
@@ -57,11 +57,11 @@ def test_unknown_app_dir_raises() -> None:
 
 
 def test_substitute_fills_sid_and_urls() -> None:
-    code = f"sid = \"{SID_PLACEHOLDER}\"\nBASE_URL = '__CUA_GYM_SLACK_URL__'\nprint(BASE_URL, sid)\n"
+    code = f"sid = \"{SID_PLACEHOLDER}\"\nBASE_URL = '__CUA_GYM_WEBARENA_GITLAB_URL__'\nprint(BASE_URL, sid)\n"
     out = substitute(code, sid="sid-123", hub_base_url=HUB, base_port=8000)
-    slack_port = 8000 + APP_DIRS.index("slack_mock")
+    gitlab_port = 8000 + APP_DIRS.index("webarena_gitlab_mock")
     assert 'sid = "sid-123"' in out
-    assert f"{HUB}:{slack_port}" in out
+    assert f"{HUB}:{gitlab_port}" in out
     assert "__CUA_GYM_" not in out
     assert SID_PLACEHOLDER not in out
 
