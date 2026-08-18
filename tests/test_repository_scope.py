@@ -38,3 +38,19 @@ def test_reward_runtime_has_no_semantic_judge_module():
     ).casefold()
     assert "openai" not in runtime
     assert "anthropic" not in runtime
+
+
+def test_agent_prompts_require_nemo_inline_episode_contract():
+    author = (ROOT / ".claude" / "agents" / "task-author.md").read_text()
+    reward = (ROOT / ".claude" / "agents" / "reward-gen.md").read_text()
+
+    for token in (
+        "cuagym/hub_apps.py",
+        "__CUA_GYM_SID__",
+        "initial_setup",
+        "eval_reward_code",
+        "nemo_tasks.jsonl",
+    ):
+        assert token in author
+    assert "/go?sid=" in reward
+    assert "REWARD: <float>" in reward

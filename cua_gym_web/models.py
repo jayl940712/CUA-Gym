@@ -65,6 +65,7 @@ class WebTaskManifest:
     apps: tuple[AppSpec, ...]
     source_evaluator: dict[str, Any] = field(default_factory=dict)
     reward_path: str = "reward.py"
+    requirements_path: str | None = None
     evidence: tuple[dict[str, Any], ...] = ()
     schema_version: int = SCHEMA_VERSION
     source: str = "webarena"
@@ -83,6 +84,11 @@ class WebTaskManifest:
             raise ValueError("a WebArena task must reference at least one app")
         if Path(self.reward_path).is_absolute() or ".." in Path(self.reward_path).parts:
             raise ValueError("reward_path must stay inside the task bundle")
+        if self.requirements_path and (
+            Path(self.requirements_path).is_absolute()
+            or ".." in Path(self.requirements_path).parts
+        ):
+            raise ValueError("requirements_path must stay inside the task bundle")
         names = [app.name for app in self.apps]
         if len(names) != len(set(names)):
             raise ValueError(f"task contains duplicate apps: {names}")
@@ -110,6 +116,11 @@ class WebTaskManifest:
                 value.get("source_evaluator") or value.get("evaluator") or {}
             ),
             reward_path=str(value.get("reward_path") or "reward.py"),
+            requirements_path=(
+                str(value["requirements_path"])
+                if value.get("requirements_path")
+                else None
+            ),
             evidence=tuple(
                 dict(item) for item in value.get("evidence", []) if isinstance(item, dict)
             ),

@@ -159,6 +159,12 @@ Reward execution is offline and deterministic. It may inspect:
 It may not use an LLM, semantic similarity, network, subprocesses, filesystem,
 environment variables, dynamic imports, or free-form agent answers.
 
+`reward.py` must be self-contained and may not import local files from the task
+bundle, repository, or Hub. Prefer the standard library. If a supported popular
+third-party package is necessary, declare it in that task's `requirements.txt`
+and set `task.json.requirements_path`. The runner executes from a separate
+scratch directory so undeclared sibling imports cannot resolve.
+
 An imported URL or `program_html` evaluator is compiled into an equivalent
 Python reward. Answer-only `string_match` tasks are excluded because they do not
 produce browser state. To use a retrieval task, rewrite its instruction so the
@@ -185,7 +191,37 @@ Before running reward.py, the runner:
 
 The accepted replay must pass twice from fresh SIDs.
 
-## 8. Legacy and hardened mode
+## 8. NeMo-Gym export contract
+
+NeMo-Gym does not mount task bundle files. Export each task as a
+`WebArenaTaskRow` whose `task_payload.cuagym` field contains:
+
+```text
+bundle_id
+app_dir
+initial_setup       # inlined Python string or null
+eval_reward_code    # inlined Python string
+```
+
+Both programs use `__CUA_GYM_SID__` and endpoint placeholders from
+`cuagym/hub_apps.py`. Setup POSTs initial state and never launches a browser.
+Reward GETs `/go?sid=...`, calculates a deterministic float, and prints
+`REWARD: <float>`.
+
+Before export:
+
+- read `cuagym/README.md`, `schemas.py`, `episode_code.py`, and `hub_apps.py`;
+- require exactly one app, because `CuaGymTaskInfo` has one `app_dir`;
+- require the app and endpoint placeholder to exist in `hub_apps.py`;
+- inline all required data—no local imports, sibling files, or auxiliary JSON;
+- use only dependencies installed by `cuagym/requirements.txt`;
+- validate the row using `WebArenaTaskRow` and `CuaGymTaskInfo`.
+
+Current `cuagym/hub_apps.py` must be regenerated before exporting a
+`webarena_*_mock` that it does not list. Never map it to a similarly named
+non-WebArena mock.
+
+## 9. Legacy and hardened mode
 
 Legacy mode is the default:
 
@@ -200,7 +236,7 @@ admin token to the browser agent.
 Hardened mode must pass its own contract matrix before being used for
 adversarial remote evaluation.
 
-## 9. Run command
+## 10. Run command
 
 ```bash
 python3 scripts/run_webarena_task.py output/webarena_tasks/<id>/task.json \

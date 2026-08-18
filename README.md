@@ -65,7 +65,7 @@ For new RL tasks, skip importing and launch the task-author agent:
 
 ```bash
 claude --agent task-author -p "
-Generate 20 new RL tasks about GitLab issue and project workflows.
+Generate 1 new RL tasks about GitLab issue and project workflows.
 Sites: gitlab
 Difficulty: 30% easy, 50% medium, 20% hard
 Output: output/task_generation/gitlab-workflows/
@@ -85,10 +85,14 @@ Generated bundles are saved as:
 output/task_generation/<topic>/
 ├── index.json
 ├── GENERATION.md
+├── nemo_tasks.jsonl
 └── <task-id>/
     ├── task.json
     ├── reward.py
-    └── initial_state/     # optional
+    ├── requirements.txt  # optional; only for popular third-party packages
+    ├── initial_setup.py   # self-contained NeMo setup code
+    ├── nemo_reward.py     # self-contained NeMo reward code
+    └── nemo_task.json     # row with setup/reward code inlined
 ```
 
 Then launch the full agent pipeline with:
@@ -101,7 +105,34 @@ python3 scripts/batch_orchestrator.py \
 
 The task-author creates the initial questions and deterministic rewards. The
 batch pipeline then independently generates correct Playwright replays, tests
-initial/replay reward discrimination, and audits each reward.
+initial/replay reward discrimination, audits each reward, and validates NeMo row
+compatibility.
+
+### NeMo-Gym output requirements
+
+The pulled `cuagym/` resources server does not read bundle files at episode
+time. Each line of `nemo_tasks.jsonl` therefore contains a
+`task_payload.cuagym` object with:
+
+```text
+bundle_id
+app_dir
+initial_setup       # inlined Python code or null
+eval_reward_code    # inlined Python code
+```
+
+Setup and reward code use `__CUA_GYM_SID__` plus an endpoint placeholder from
+`cuagym/hub_apps.py`. Setup injects state without launching Chrome. Reward
+fetches `/go?sid=...` and prints `REWARD: <float>`.
+
+NeMo currently supports one `app_dir` per row and installs only
+`cuagym/requirements.txt`; per-task files and per-task dependencies are not
+available during episodes. The task-author rejects nonconforming tasks.
+
+Important: the current `cuagym/hub_apps.py` does not list the newer
+`webarena_*_mock` directories. It must be regenerated against the current Hub
+before those tasks can be exported. A WebArena mock must never be substituted
+with a similarly named commercial mock.
 
 ## Import existing tasks
 
@@ -155,6 +186,7 @@ State-based rewards do not need extra evidence declarations:
     "start_path": "/byteblaze/a11y-syntax-highlighting/-/issues"
   }],
   "reward_path": "reward.py",
+  "requirements_path": null,
   "evidence": [],
   "source_evaluator": {}
 }
@@ -176,6 +208,15 @@ def evaluate(evidence):
 
 Retrieval tasks must require an observable writeback, such as saving the
 retrieved value in a named comment, note, or form field.
+
+Rewards are self-contained and cannot import sibling repository files. Prefer
+the standard library. If a generated reward needs an approved popular package,
+the bundle includes `requirements.txt` and sets `requirements_path`. Install it
+before validation:
+
+```bash
+python3 -m pip install -r output/task_generation/<topic>/<task-id>/requirements.txt
+```
 
 ## Known-correct Playwright replay
 

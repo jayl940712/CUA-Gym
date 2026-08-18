@@ -47,7 +47,22 @@ The task manifest is created by `scripts/import_webarena_tasks.py`.
 7. Create a reward sandbox containing the task, schemas, and evidence contract,
    but no replay source.
 8. Spawn `reward-gen` to author or audit deterministic `reward.py`.
-9. Run up to three adversarial rounds:
+9. Require `initial_setup.py` (or an explicit null setup), `nemo_reward.py`, and
+   `nemo_task.json`. Verify:
+   - `app_dir` belongs to `cuagym.hub_apps.APP_DIRS`;
+   - every endpoint placeholder belongs to `PLACEHOLDER_MAP`;
+   - setup/reward code compiles as standalone Python;
+   - setup has no browser launch or `/tmp` SID handoff;
+   - reward reads `/go?sid=`, contains `__CUA_GYM_SID__`, and prints `REWARD:`;
+   - the NeMo row validates as `WebArenaTaskRow` and `CuaGymTaskInfo`.
+10. If `task.json.requirements_path` is set, install that task's declared popular
+   dependencies before validation:
+
+   ```bash
+   python3 -m pip install -r <bundle>/requirements.txt
+   ```
+
+11. Run up to three adversarial rounds:
    - Spawn `golden-browser` with the task, endpoints, and output paths.
    - Require it to create `golden_replay.py` and run
      `scripts/run_webarena_task.py`.
@@ -58,7 +73,7 @@ The task manifest is created by `scripts/import_webarena_tasks.py`.
    - Spawn `reward-audit` against that sandbox.
    - Copy its `REVIEW.md` into the run output.
    - Stop when `verification.passed` is true and REVIEW says PASS.
-10. Route replay/UI failures to `golden-browser`. Route scoring and false
+12. Route replay/UI failures to `golden-browser`. Route scoring and false
     positive/negative failures to `reward-gen`. Never reveal replay source to
     reward agents.
 
@@ -86,6 +101,9 @@ All conditions are mandatory:
 6. `golden_replay.py` uses Playwright UI actions, not state API mutation.
 7. A second run from a fresh SID also passes.
 8. `REVIEW.md` contains exactly `## Verdict: PASS`.
+9. NeMo setup/reward code is self-contained and placeholder-complete.
+10. `nemo_task.json` satisfies the `cuagym` row schema and embeds the final
+    audited code strings.
 
 ## Completion
 

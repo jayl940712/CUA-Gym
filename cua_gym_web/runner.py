@@ -387,6 +387,11 @@ class WebTaskRunner:
         result = await self.reward_runner.evaluate(
             self.task_dir / self.task.reward_path,
             immutable,
+            (
+                self.task_dir / self.task.requirements_path
+                if self.task.requirements_path
+                else None
+            ),
         )
         return result, immutable
 

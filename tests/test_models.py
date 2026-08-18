@@ -37,3 +37,13 @@ def test_manifest_rejects_non_webarena_mock():
             source_name="gitlab",
             base_url_env="CUA_GYM_GITLAB_URL",
         )
+
+
+def test_manifest_rejects_requirements_outside_bundle():
+    with pytest.raises(ValueError, match="requirements_path"):
+        WebTaskManifest(
+            task_id="task",
+            instruction="Do the task",
+            apps=(AppSpec.for_source("gitlab"),),
+            requirements_path="../requirements.txt",
+        )

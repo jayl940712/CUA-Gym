@@ -72,6 +72,12 @@ def task_paths(inputs: list[str]) -> list[Path]:
         reward = path.parent / value.get("reward_path", "reward.py")
         if not reward.is_file():
             raise FileNotFoundError(f"reward.py not found for {path}: {reward}")
+        if value.get("requirements_path"):
+            requirements = path.parent / value["requirements_path"]
+            if not requirements.is_file():
+                raise FileNotFoundError(
+                    f"requirements file not found for {path}: {requirements}"
+                )
     return unique
 
 

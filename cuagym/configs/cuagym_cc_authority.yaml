@@ -1,0 +1,101 @@
+
+# CUA-Gym with context compaction in AUTHORITY mode — the training config.
+#
+# Identical to cuagym.yaml except the agent's legacy max_recent_screenshots
+# pruning is replaced by the visual-history controller (the two knobs are
+# mutually exclusive). The recency policy keeps the screenshot conditioning
+# the next action plus the last 2 historical groups — the same 3 visible
+# screenshots as the legacy default — and rewrites the historical base every
+# 2 recorded actions (turn-chunked schedule), bounding physical-trace splits.
+#
+# Pair with responses_api_models/vllm_model/configs/vllm_model_for_training.yaml:
+# authority mode requires return_token_id_information: true so every model
+# call carries prompt/generation token arrays as generation evidence.
+
+cuagym_resources_server:
+  resources_servers:
+    cuagym:
+      entrypoint: app.py
+      domain: e2e
+      num_workers: 1
+      verified: false
+      description: Multimodal CUA-Gym-Hub mock-app browser environment with session-isolated state
+      value: Improve visual browser-use with parallel-safe, state-injected mock applications
+      # Hub deployment. The base URL is substituted into the rows' inlined
+      # setup/reward programs at episode time — rotating the (ephemeral) hub
+      # IP is a one-line change here, never a dataset reconversion.
+      hub_base_url: ${oc.env:CUA_GYM_HUB_URL,http://localhost}
+      hub_base_port: ${oc.env:CUA_GYM_HUB_BASE_PORT,8000}
+      # Setup runs inside the seed call, which the agent-facing server bounds
+      # by browser_operation_timeout_seconds; keep it comfortably below that
+      # so a slow setup surfaces as its own error instead of a seed timeout.
+      setup_timeout_seconds: 90
+      # Verification is bounded by browser_evaluation_timeout_seconds.
+      reward_timeout_seconds: 120
+      viewport_width: 1920
+      viewport_height: 1080
+      screenshot_format: PNG
+      screenshot_jpeg_quality: 100
+      post_action_screenshot_delay_seconds: 4
+      max_browser_workers: 16
+      initial_browser_workers: ${.max_browser_workers}
+      browser_actor_num_cpus: 1
+      browser_actor_resources: {}
+      node_placement_strategy: spread_all
+      browser_startup_concurrency: 1
+      browser_startup_stagger_seconds: 10
+      browser_startup_timeout_seconds: 60
+      browser_pool_wait_timeout_seconds: 300
+      browser_operation_timeout_seconds: 180
+      browser_evaluation_timeout_seconds: 300
+      browser_session_max_seconds: 1800
+
+cuagym_agent:
+  responses_api_agents:
+    web_agent:
+      entrypoint: app.py
+      resources_server:
+        type: resources_servers
+        name: cuagym_resources_server
+      model_server:
+        type: responses_api_models
+        name: policy_model
+      max_steps: 50
+      return_transitions: false
+      done_if_no_tool_calls: false
+      # Step 1 already carries the task instruction with the initial screenshot.
+      include_initial_request_input: false
+      max_model_calls_per_step: 3
+      rollout_timeout_seconds: 1200
+      finalization_reserve_seconds: 360
+      resource_request_timeout_seconds: 510
+      visual_history:
+        enabled: true
+        shadow_only: false
+        policy:
+          type: recency
+          config:
+            protect_initial_context: true
+            # Visible screenshots = pending group + keep_last_image_groups.
+            # 2 keeps parity with the legacy max_recent_screenshots: 3.
+            keep_last_image_groups: 2
+            keep_all_text: true
+            image_omission_marker: null
+        schedule:
+          type: turn_chunked_recency
+          actions_per_chunk: 2
+        # Hard admission limit evaluated before every model call (tokenize
+        # preflight via the model server's /tokenize). Text accumulates under
+        # the recency policy (keep_all_text), so long rollouts need this to
+        # terminate gracefully (context_limit) instead of 500-ing at the
+        # serving max_model_len. Sized for a 32k serving window: admit while
+        # prompt + reserved <= 32768, reserving generation room (512 new
+        # tokens) plus template/processor margin.
+        guards:
+          max_total_tokens: 32768
+          reserved_generation_tokens: 1536
+      datasets:
+        - name: example
+          type: example
+          jsonl_fpath: resources_servers/cuagym/data/example.jsonl
+          num_repeats: 1

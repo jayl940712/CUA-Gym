@@ -6,6 +6,7 @@ from cua_gym_web.compiler import render_reward
 from cua_gym_web.reward import (
     PythonRewardRunner,
     RewardValidationError,
+    read_reward_requirements,
     validate_reward_source,
 )
 
@@ -76,3 +77,32 @@ def test_reward_policy_rejects_network_and_filesystem_code():
         validate_reward_source(
             "def evaluate(evidence):\n    open('/tmp/result', 'w')\n    return 1.0\n"
         )
+
+
+def test_popular_third_party_import_requires_declaration(tmp_path):
+    source = "import numpy\n\ndef evaluate(evidence):\n    return 0.0\n"
+    with pytest.raises(RewardValidationError, match="forbidden module"):
+        validate_reward_source(source)
+
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("numpy>=1.24\n")
+    allowed = read_reward_requirements(requirements)
+
+    assert allowed == {"numpy"}
+    validate_reward_source(source, allowed_third_party=allowed)
+
+
+def test_requirements_reject_non_allowlisted_packages(tmp_path):
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("requests==2.32.0\n")
+
+    with pytest.raises(RewardValidationError, match="unsupported package"):
+        read_reward_requirements(requirements)
+
+
+def test_local_sibling_import_is_forbidden_even_if_file_exists(tmp_path):
+    (tmp_path / "helper.py").write_text("VALUE = 1\n")
+    source = "import helper\n\ndef evaluate(evidence):\n    return helper.VALUE\n"
+
+    with pytest.raises(RewardValidationError, match="forbidden module"):
+        validate_reward_source(source)

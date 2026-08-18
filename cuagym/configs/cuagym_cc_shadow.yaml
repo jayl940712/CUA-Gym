@@ -1,0 +1,75 @@
+
+# CUA-Gym with context compaction in SHADOW mode — plumbing validation only.
+#
+# The session runs the identity policy and byte-checks its view against the
+# uncompacted history every turn; the model receives the FULL history (no
+# legacy max_recent_screenshots pruning — the two knobs are mutually
+# exclusive) and the response keeps the legacy shape. Use this to prove the
+# per-turn hook wiring on real rollouts before flipping to
+# cuagym_cc_authority.yaml. Any mismatch fails the rollout loudly.
+
+cuagym_resources_server:
+  resources_servers:
+    cuagym:
+      entrypoint: app.py
+      domain: e2e
+      num_workers: 1
+      verified: false
+      description: Multimodal CUA-Gym-Hub mock-app browser environment with session-isolated state
+      value: Improve visual browser-use with parallel-safe, state-injected mock applications
+      # Hub deployment. The base URL is substituted into the rows' inlined
+      # setup/reward programs at episode time — rotating the (ephemeral) hub
+      # IP is a one-line change here, never a dataset reconversion.
+      hub_base_url: ${oc.env:CUA_GYM_HUB_URL,http://localhost}
+      hub_base_port: ${oc.env:CUA_GYM_HUB_BASE_PORT,8000}
+      # Setup runs inside the seed call, which the agent-facing server bounds
+      # by browser_operation_timeout_seconds; keep it comfortably below that
+      # so a slow setup surfaces as its own error instead of a seed timeout.
+      setup_timeout_seconds: 90
+      # Verification is bounded by browser_evaluation_timeout_seconds.
+      reward_timeout_seconds: 120
+      viewport_width: 1920
+      viewport_height: 1080
+      screenshot_format: PNG
+      screenshot_jpeg_quality: 100
+      post_action_screenshot_delay_seconds: 4
+      max_browser_workers: 16
+      initial_browser_workers: ${.max_browser_workers}
+      browser_actor_num_cpus: 1
+      browser_actor_resources: {}
+      node_placement_strategy: spread_all
+      browser_startup_concurrency: 1
+      browser_startup_stagger_seconds: 10
+      browser_startup_timeout_seconds: 60
+      browser_pool_wait_timeout_seconds: 300
+      browser_operation_timeout_seconds: 180
+      browser_evaluation_timeout_seconds: 300
+      browser_session_max_seconds: 1800
+
+cuagym_agent:
+  responses_api_agents:
+    web_agent:
+      entrypoint: app.py
+      resources_server:
+        type: resources_servers
+        name: cuagym_resources_server
+      model_server:
+        type: responses_api_models
+        name: policy_model
+      max_steps: 50
+      return_transitions: false
+      done_if_no_tool_calls: false
+      # Step 1 already carries the task instruction with the initial screenshot.
+      include_initial_request_input: false
+      max_model_calls_per_step: 3
+      rollout_timeout_seconds: 1200
+      finalization_reserve_seconds: 360
+      resource_request_timeout_seconds: 510
+      visual_history:
+        enabled: true
+        shadow_only: true
+      datasets:
+        - name: example
+          type: example
+          jsonl_fpath: resources_servers/cuagym/data/example.jsonl
+          num_repeats: 1
