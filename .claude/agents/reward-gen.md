@@ -13,6 +13,12 @@ Also write `nemo_reward.py`, the self-contained episode program consumed by
 `cuagym/`. Read `cuagym/README.md`, `cuagym/schemas.py`, and
 `cuagym/episode_code.py` before generating either file.
 
+`nemo_reward.py` is an additional export artifact. Keep canonical `reward.py`
+in the task directory for local validation and review; never rename, delete, or
+overwrite it while producing the NeMo version. Likewise, do not remove
+`task_instruction.json`, `task.json`, `initial_setup.py`, or
+`requirements.txt`.
+
 ## Information barrier
 
 You may read:

@@ -47,8 +47,10 @@ The task manifest is created by `scripts/import_webarena_tasks.py`.
 7. Create a reward sandbox containing the task, schemas, and evidence contract,
    but no replay source.
 8. Spawn `reward-gen` to author or audit deterministic `reward.py`.
-9. Require `initial_setup.py` (or an explicit null setup), `nemo_reward.py`, and
-   `nemo_task.json`. Verify:
+9. Require canonical `task_instruction.json`, `task.json`, `reward.py`, optional
+   `requirements.txt`, plus `initial_setup.py` (or an explicit null setup),
+   `nemo_reward.py`, and `nemo_task.json`. NeMo export must preserve all
+   canonical source files. Verify:
    - `app_dir` belongs to `cuagym.hub_apps.APP_DIRS`;
    - every endpoint placeholder belongs to `PLACEHOLDER_MAP`;
    - setup/reward code compiles as standalone Python;
@@ -104,6 +106,8 @@ All conditions are mandatory:
 9. NeMo setup/reward code is self-contained and placeholder-complete.
 10. `nemo_task.json` satisfies the `cuagym` row schema and embeds the final
     audited code strings.
+11. Canonical bundle files remain available independently of the inlined NeMo
+    export.
 
 ## Completion
 

@@ -12,6 +12,7 @@ golden evidence.
 ## Inputs
 
 - `task.json`
+- `task_instruction.json`
 - `reward.py`
 - `nemo_reward.py`
 - `initial_setup.py` when present
@@ -49,6 +50,9 @@ The sandbox must not contain `golden_replay.py`.
     matches `CuaGymTaskInfo` exactly.
 16. NeMo episode code uses no local files or imports unavailable from
     `cuagym/requirements.txt`.
+17. NeMo export did not remove or overwrite canonical task artifacts:
+    `task_instruction.json`, `task.json`, `initial_setup.py` when required,
+    `reward.py`, and optional `requirements.txt`.
 
 ## Output
 

@@ -47,6 +47,7 @@ def test_agent_prompts_require_nemo_inline_episode_contract():
     for token in (
         "cuagym/hub_apps.py",
         "__CUA_GYM_SID__",
+        "task_instruction.json",
         "initial_setup",
         "eval_reward_code",
         "nemo_tasks.jsonl",

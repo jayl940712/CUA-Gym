@@ -136,12 +136,33 @@ Each task is a schema-v2 bundle:
 
 ```text
 output/task_generation/<topic-slug>/<task-id>/
+├── task_instruction.json  # stable human-readable task contract
 ├── task.json
 ├── reward.py
 ├── requirements.txt       # optional; only for declared popular dependencies
 ├── initial_setup.py        # self-contained NeMo setup program
 ├── nemo_reward.py          # self-contained NeMo reward program
 └── nemo_task.json          # ready-to-inline WebArenaTaskRow payload
+```
+
+These canonical files must remain in place after NeMo export. `nemo_task.json`
+and `nemo_tasks.jsonl` contain inlined copies; they must never replace, rename,
+truncate, or delete `task_instruction.json`, `task.json`, `initial_setup.py`,
+`reward.py`, or `requirements.txt`.
+
+Write `task_instruction.json` with at least:
+
+```json
+{
+  "task_id": "<task-id>",
+  "task_instruction": "<exact instruction shown to the rollout agent>",
+  "app_dir": "<single NeMo app_dir>",
+  "start_path": "<initial browser path>",
+  "difficulty": "easy | medium | hard",
+  "success_criteria": [
+    "<exact observable browser-state requirement>"
+  ]
+}
 ```
 
 Write `task.json` with:
@@ -194,6 +215,9 @@ NeMo reward code must:
 `reward.py` and `nemo_reward.py` must implement the same rubric. The former is
 used by local adversarial validation over immutable evidence; the latter is
 inlined and executed by NeMo-Gym.
+
+Never replace `reward.py` with the NeMo wrapper. Keep both source files, even
+when their scoring logic is mechanically equivalent.
 
 Per-task `requirements.txt` is authoring metadata only. NeMo-Gym does not install
 it. A task is NeMo-ready only if its inlined setup/reward imports are already
@@ -278,6 +302,9 @@ Before finishing:
 - no copied benchmark questions;
 - no answer-only tasks;
 - every route/entity exists;
+- every bundle retains `task_instruction.json`, `task.json`,
+  `initial_setup.py` (when setup is needed), `reward.py`, and optional
+  `requirements.txt` after NeMo export;
 - every reward passes static validation;
 - every setup/reward program compiles after placeholder substitution;
 - every NeMo row validates against `WebArenaTaskRow` +

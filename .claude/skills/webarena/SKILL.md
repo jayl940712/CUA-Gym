@@ -203,6 +203,10 @@ initial_setup       # inlined Python string or null
 eval_reward_code    # inlined Python string
 ```
 
+This JSONL row is an export, not the canonical task bundle. Always retain
+`task_instruction.json`, `task.json`, `initial_setup.py` when needed,
+`reward.py`, and optional `requirements.txt` beside the NeMo artifacts.
+
 Both programs use `__CUA_GYM_SID__` and endpoint placeholders from
 `cuagym/hub_apps.py`. Setup POSTs initial state and never launches a browser.
 Reward GETs `/go?sid=...`, calculates a deterministic float, and prints

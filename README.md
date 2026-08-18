@@ -87,8 +87,9 @@ output/task_generation/<topic>/
 ├── GENERATION.md
 ├── nemo_tasks.jsonl
 └── <task-id>/
-    ├── task.json
-    ├── reward.py
+    ├── task_instruction.json  # canonical instruction and success criteria
+    ├── task.json              # local validation manifest
+    ├── reward.py              # canonical deterministic reward
     ├── requirements.txt  # optional; only for popular third-party packages
     ├── initial_setup.py   # self-contained NeMo setup code
     ├── nemo_reward.py     # self-contained NeMo reward code
@@ -107,6 +108,11 @@ The task-author creates the initial questions and deterministic rewards. The
 batch pipeline then independently generates correct Playwright replays, tests
 initial/replay reward discrimination, audits each reward, and validates NeMo row
 compatibility.
+
+NeMo files are additional exports. Generation always retains the canonical
+`task_instruction.json`, `task.json`, `initial_setup.py` when needed,
+`reward.py`, and optional `requirements.txt` so tasks remain inspectable and
+usable outside NeMo-Gym.
 
 ### NeMo-Gym output requirements
 
