@@ -17,6 +17,9 @@ def test_root_agent_system_is_webarena_only():
     assert list((ROOT / ".claude" / "skills").glob("*/SKILL.md")) == [
         ROOT / ".claude" / "skills" / "webarena" / "SKILL.md"
     ]
+    for agent_name, config in settings["agents"].items():
+        prompt = (ROOT / config["prompt"]).read_text()
+        assert f"name: {agent_name}" in prompt.split("---", 2)[1]
 
 
 def test_vm_entrypoints_are_removed():

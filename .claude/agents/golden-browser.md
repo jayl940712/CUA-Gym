@@ -1,4 +1,5 @@
 ---
+name: golden-browser
 description: "Playwright browser agent that creates and verifies deterministic known-correct replays for imported WebArena tasks."
 tools: Read, Write, Edit, Glob, Grep, Bash
 ---

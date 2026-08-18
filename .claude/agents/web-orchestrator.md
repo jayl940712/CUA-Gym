@@ -1,4 +1,5 @@
 ---
+name: orchestrator
 description: "WebArena-only orchestrator. Coordinates deterministic reward.py generation, Playwright replay, and reward audit."
 tools: Read, Write, Edit, Glob, Grep, Bash, Agent
 ---

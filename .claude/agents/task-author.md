@@ -1,4 +1,5 @@
 ---
+name: task-author
 description: "Authors new verifiable WebArena RL tasks using benchmark questions as inspiration and Hub schemas as ground truth."
 tools: Read, Write, Edit, Glob, Grep, Bash, Agent
 ---

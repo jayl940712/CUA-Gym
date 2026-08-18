@@ -1,4 +1,5 @@
 ---
+name: reward-audit
 description: "Independent auditor for deterministic reward.py code and initial/replay discrimination."
 tools: Read, Write, Glob, Grep
 ---

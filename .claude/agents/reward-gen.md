@@ -1,4 +1,5 @@
 ---
+name: reward-gen
 description: "Authors deterministic Python reward scripts for WebArena tasks using immutable browser and state evidence."
 tools: Read, Write, Edit, Glob, Grep
 ---
