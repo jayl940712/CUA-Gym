@@ -61,24 +61,45 @@ The importer is only a compiler for existing raw WebArena data. It normalizes
 site names and routes, filters unsupported tasks, and generates deterministic
 `reward.py`. It does not create new questions and does not run the browser.
 
-For a new RL task, skip importing and author the schema-v2 bundle directly:
+For new RL tasks, skip importing and launch the task-author agent:
+
+```bash
+claude --agent task-author -p "
+Generate 20 new RL tasks about GitLab issue and project workflows.
+Sites: gitlab
+Difficulty: 30% easy, 50% medium, 20% hard
+Output: output/task_generation/gitlab-workflows/
+"
+```
+
+The agent samples `webarena_benchmarks/webarena.jsonl` for realistic workflow
+and question patterns. It uses those rows only as inspiration: generated tasks
+must not copy or lightly paraphrase benchmark questions. Hub schemas, routes,
+and state remain the ground truth.
+
+Generated bundles are saved as:
 
 ```text
-output/task_generation/<task-id>/
-├── task.json
-└── reward.py
+output/task_generation/<topic>/
+├── index.json
+├── GENERATION.md
+└── <task-id>/
+    ├── task.json
+    ├── reward.py
+    └── initial_state/     # optional
 ```
 
 Then launch the full agent pipeline with:
 
 ```bash
 python3 scripts/batch_orchestrator.py \
-  output/task_generation/<task-id>/task.json \
-  --concurrency 1
+  output/task_generation/<topic>/index.json \
+  --concurrency 3
 ```
 
-The current pipeline validates and iterates an authored task bundle. It does not
-yet generate the initial task question from a natural-language prompt.
+The task-author creates the initial questions and deterministic rewards. The
+batch pipeline then independently generates correct Playwright replays, tests
+initial/replay reward discrimination, and audits each reward.
 
 ## Import existing tasks
 
@@ -115,7 +136,7 @@ output/webarena_tasks/<task-id>/reward.py
 The manifest preserves source metadata, declares immutable observations, and
 replaces deployment URLs with environment-variable references.
 
-## Author a new task
+## Manual task bundle format
 
 A new task bundle contains `task.json` and deterministic `reward.py`.
 State-based rewards do not need extra evidence declarations:
@@ -205,10 +226,11 @@ output/runs/<task-id>/<attempt>/
 
 ## Agent workflow
 
-The root `.claude/` system contains four WebArena-only agents:
+The root `.claude/` system contains five WebArena-only agents:
 
 | Agent | Responsibility |
 |---|---|
+| `task-author` | Generates new task bundles from benchmark inspiration and Hub ground truth |
 | `orchestrator` | Coordinates reward generation, replay, and audit |
 | `golden-browser` | Creates and reruns deterministic Playwright actions |
 | `reward-gen` | Authors deterministic Python rewards from task requirements |

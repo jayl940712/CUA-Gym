@@ -11,6 +11,10 @@
     ]
   },
   "agents": {
+    "task-author": {
+      "description": "Authors new verifiable WebArena RL tasks using benchmark questions as inspiration and Hub state as ground truth.",
+      "prompt": ".claude/agents/task-author.md"
+    },
     "orchestrator": {
       "description": "WebArena-only orchestrator. Coordinates deterministic Python reward generation, Playwright replay, and independent reward audit.",
       "prompt": ".claude/agents/web-orchestrator.md"

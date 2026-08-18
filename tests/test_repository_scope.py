@@ -8,6 +8,7 @@ def test_root_agent_system_is_webarena_only():
     settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
 
     assert set(settings["agents"]) == {
+        "task-author",
         "orchestrator",
         "golden-browser",
         "reward-gen",

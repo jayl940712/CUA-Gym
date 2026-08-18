@@ -1,6 +1,6 @@
 ---
 name: webarena
-description: "How to import, execute, and verify WebArena tasks against CUA-Gym-Hub mocks using Playwright and isolated SIDs."
+description: "How to author, import, execute, and verify WebArena tasks against CUA-Gym-Hub mocks using deterministic rewards and Playwright."
 user-invocable: false
 ---
 
@@ -9,9 +9,9 @@ user-invocable: false
 This skill is the source of truth for the root CUA-Gym task pipeline. It covers
 only browser tasks targeting `hub/websites/webarena_*_mock`.
 
-## 1. Authoritative inputs
+## 1. Existing tasks and new-task inspiration
 
-Never recreate benchmark tasks from prose. Import the original task file:
+For existing benchmark tasks, import the original task file:
 
 ```bash
 python3 scripts/import_webarena_tasks.py /path/to/test.raw.json \
@@ -26,6 +26,19 @@ The importer:
 - excludes answer-only tasks without browser-visible writeback;
 - compiles supported URL/DOM checks into deterministic `reward.py`;
 - emits a versioned task bundle.
+
+For genuinely new RL tasks, do not import benchmark rows. The task-author agent
+uses `webarena_benchmarks/webarena.jsonl` only to study realistic question
+patterns:
+
+```bash
+python3 scripts/sample_webarena_inspirations.py --count 30 --site gitlab
+```
+
+New questions must not copy or lightly paraphrase benchmark questions. Their
+entities, workflows, initial state, and deterministic reward must be grounded in
+the current Hub mocks. Retrieval patterns must be converted into observable
+browser writebacks.
 
 For each app, read its schema directly:
 
