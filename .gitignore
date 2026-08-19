@@ -37,3 +37,8 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Per-batch task-authoring scratch (generators, replay drivers, shortcut probes).
+# Kept on disk because GENERATION.md notes reference these paths; not part of the harness.
+scripts/_gen/
+scripts/_*_dtc*.py
