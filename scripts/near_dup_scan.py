@@ -65,7 +65,12 @@ def jaccard(a: set[str], b: set[str]) -> float:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--new", required=True, help="new batch site directory")
-    parser.add_argument("--prior", required=True, help="prior batch site directory")
+    parser.add_argument(
+        "--prior",
+        required=True,
+        help="prior batch site directory; may be the same as --new to self-scan a "
+        "growing batch (identity matches are skipped)",
+    )
     parser.add_argument("--threshold", type=float, default=0.45)
     parser.add_argument("--top", type=int, default=3, help="nearest N prior tasks to show")
     args = parser.parse_args()
@@ -79,7 +84,14 @@ def main() -> int:
     flagged = 0
     for task_id, instruction, toks in new:
         scored = sorted(
-            ((jaccard(toks, ptoks), pid, pinstr) for pid, pinstr, ptoks in prior),
+            (
+                (jaccard(toks, ptoks), pid, pinstr)
+                for pid, pinstr, ptoks in prior
+                # Skip the identity match so --new and --prior can be the same
+                # directory: that is how a batch is scanned against its own
+                # accumulated siblings, not just against earlier batches.
+                if pid != task_id
+            ),
             reverse=True,
         )[: args.top]
         if scored and scored[0][0] >= args.threshold:

@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import argparse
 import ast
+import builtins
 import json
+import re
+import unicodedata
 import sys
 import types
 from pathlib import Path
@@ -55,13 +58,80 @@ JS_LITERALS = {"false", "true", "null"}
 DIFFICULTIES = {"easy", "medium", "hard"}
 
 # The five hard-criteria defined in TASK2.md 2c. A hard task must satisfy >= 2.
-HARD_CRITERIA = {
-    "multi_mutation",
-    "derived_target",
-    "cross_section",
-    "exclusion_constraint",
-    "shortcut_defeating",
+# TASK4.md S4 names five hard criteria in prose; batches 2-3 encoded a partly
+# different set, and this enum was never reconciled. Authors follow S4 (it is
+# what the lane briefs cite) and were failing on `ordering_dependency` and
+# `cross_page`, which S4 lists and this set omitted. Both vocabularies are
+# accepted: the S4 names are canonical for new work, the legacy three are kept
+# so the three prior snapshots still validate.
+HARD_CRITERIA_CANONICAL = {
+    "multi_entity",          # S4.1 three or more distinct records mutated
+    "derived_target",        # S4.2 target identified by a computed property
+    "ordering_dependency",   # S4.3 an earlier step unlocks or constrains a later one
+    "cross_page",            # S4.4 work spans three or more distinct pages
+    "conditional_branch",    # S4.5 what to do depends on state read first
 }
+HARD_CRITERIA_LEGACY = {
+    "multi_mutation",        # batch-2/3 spelling of multi_entity
+    "cross_section",         # batch-2/3 spelling of cross_page
+    "exclusion_constraint",  # batch-2/3 only; forbidden in the terse set (S3.2)
+    "shortcut_defeating",    # batch-2/3 only
+}
+HARD_CRITERIA = HARD_CRITERIA_CANONICAL | HARD_CRITERIA_LEGACY
+
+
+def _dict_from_node(node: ast.AST) -> dict | None:
+    """The dict a module-level assignment produces, literal or JSON.
+
+    TASK4 S7 requires inline fixtures to be written as json.loads() over a raw
+    triple-quoted literal, so a reward that follows the rules does NOT expose
+    an `ast.Dict` at all. Reading
+    only literals therefore skipped exactly the conforming bundles -- silently,
+    which is the worst way to skip them: the hard-task weight check reported a
+    missing components table that was right there, and the terse preservation
+    check became a no-op rather than a failure.
+    """
+    if isinstance(node, ast.Dict):
+        try:
+            return ast.literal_eval(node)
+        except (ValueError, SyntaxError):
+            return None
+    # json.loads("...") / json.loads(r"""...""")
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "loads"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+    ):
+        try:
+            value = json.loads(node.args[0].value)
+        except ValueError:
+            return None
+        return value if isinstance(value, dict) else None
+    return None
+
+
+def _weight_tables(reward_path: Path) -> list[dict]:
+    """Every module-level COMPONENT*/WEIGHT* mapping in a reward.py."""
+    try:
+        tree = ast.parse(reward_path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return []
+    tables = []
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(t, ast.Name) and ("COMPONENT" in t.id.upper() or "WEIGHT" in t.id.upper())
+            for t in node.targets
+        ):
+            continue
+        table = _dict_from_node(node.value)
+        if table is not None:
+            tables.append(table)
+    return tables
 
 
 def component_weight_total(reward_path: Path) -> float | None:
@@ -72,6 +142,15 @@ def component_weight_total(reward_path: Path) -> float | None:
     module-level dict/list/tuple whose name mentions COMPONENT/WEIGHT and whose
     numeric leaves are the payouts.
     """
+    # A conforming reward writes this table as json.loads(r"""..."""), which
+    # has no ast.Dict to read. Try that first; fall back to the literal walk
+    # for the older hand-written tables.
+    tables = _weight_tables(reward_path)
+    if tables:
+        values = [v for t in tables for v in t.values() if isinstance(v, (int, float))]
+        if values:
+            return float(sum(values))
+
     try:
         tree = ast.parse(reward_path.read_text(encoding="utf-8"))
     except (OSError, SyntaxError):
@@ -203,6 +282,175 @@ def broken_inline_json(code: str) -> list[str]:
     return problems
 
 
+# ---- batch-4 style contract (TASK4.md S3) --------------------------------
+
+STYLES = {"terse", "explicit"}
+
+TERSE_MAX_WORDS = 40
+
+# S3.2: in the terse set every weighted component must name something the model
+# MADE TRUE. A component that pays because something did not change is
+# forbidden. Detected off the component name, which is what an auditor reads.
+PRESERVATION_TOKENS = (
+    "untouched", "unchanged", "preserved", "preservation", "survived", "survives",
+    "intact", "not_deleted", "not_removed", "not_modified", "still_", "_still",
+    "_kept", "kept_", "remains_", "_remains", "left_alone", "no_other", "others_",
+    "undisturbed", "_undisturbed", "unaffected", "unmodified", "retained",
+)
+
+
+def component_names(reward_path: Path) -> list[str]:
+    """Keys of the module-level COMPONENT_WEIGHTS table, read out of the AST."""
+    try:
+        tree = ast.parse(reward_path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return []
+    names: list[str] = []
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(t, ast.Name) and ("COMPONENT" in t.id.upper() or "WEIGHT" in t.id.upper())
+            for t in node.targets
+        ):
+            continue
+        # Literal dict, or the json.loads(r"""...""") form TASK4 S7 mandates.
+        table = _dict_from_node(node.value)
+        if table is not None:
+            names.extend(k for k in table if isinstance(k, str))
+    return names
+
+
+def preservation_components(reward_path: Path) -> list[str]:
+    return [
+        name for name in component_names(reward_path)
+        if any(token in name.lower() for token in PRESERVATION_TOKENS)
+    ]
+
+
+def reads_initial_state(reward_path: Path) -> bool:
+    """True when reward.py reads `initial_state` as data, not just in prose.
+
+    S7: "Every reward reads `current_state` only; never diff against
+    `initial_state`." This is the *logic* half of the preservation check that a
+    name-only scan cannot reach -- a component called `branch_created` that is
+    really `initial != current` still pays for a diff.
+
+    It must be an AST check, not a grep: 261 of batch 3's 600 rewards mention
+    `initial_state` and only 50 actually read it, because the rest are comments
+    asserting that they do not. A grep would over-fire five times over.
+    """
+    try:
+        tree = ast.parse(reward_path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return False
+    return any(
+        isinstance(node, ast.Constant) and node.value == "initial_state"
+        for node in ast.walk(tree)
+    )
+
+
+def unbound_names(code: str) -> set[str]:
+    """Names read but never bound, imported, or built in (TASK4.md S10.4).
+
+    `compile()` and `validate_reward_source` both accept a program that
+    references a constant it never defines; the NameError fires only at episode
+    time, and only on the branch that reaches it. A batch-3 variant shipped an
+    undefined `SEEDED_ORDER_COUNT` and scored a clean 0.0 at t=0 because the
+    enclosing check short-circuited -- so it blew up *only on a correct replay*.
+    This generalises `js_literal_names()` from three names to every name.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return set()
+
+    bound: set[str] = set()
+    read: set[str] = set()
+
+    def bind_args(args: ast.arguments) -> None:
+        for group in (args.posonlyargs, args.args, args.kwonlyargs):
+            bound.update(a.arg for a in group)
+        for extra in (args.vararg, args.kwarg):
+            if extra is not None:
+                bound.add(extra.arg)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            (read if isinstance(node.ctx, ast.Load) else bound).add(node.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            bound.add(node.name)
+            bind_args(node.args)
+        elif isinstance(node, ast.Lambda):
+            bind_args(node.args)
+        elif isinstance(node, ast.ClassDef):
+            bound.add(node.name)
+        elif isinstance(node, ast.alias):
+            bound.add((node.asname or node.name).split(".")[0])
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bound.add(node.name)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            bound.update(node.names)
+        elif isinstance(node, ast.MatchAs) and node.name:
+            bound.add(node.name)
+
+    return read - bound - set(dir(builtins))
+
+
+# ---- batch-5 skill contract (docs/SKILL_TAXONOMY.md) ---------------------
+
+RETRIEVAL_SKILLS = {f"R{i}" for i in range(1, 11)}
+ACTION_SKILLS = {f"A{i}" for i in range(1, 14)}
+ALL_SKILLS = RETRIEVAL_SKILLS | ACTION_SKILLS
+
+BENCHMARK = Path("webarena_benchmarks/webarena.jsonl")
+
+
+def _normalise_intent(text: str) -> str:
+    """Compare intents ignoring whitespace, case, punctuation and ACCENTS.
+
+    Authors copy analogues out of a terminal, so a verbatim match on the raw
+    string would fail on a collapsed newline and teach them to stop quoting.
+
+    Accent folding was added after a lane transcribed the official intent
+    "Invite Benoît Blanchon ..." as "Benoit" and had all ten of its bundles
+    rejected. Without folding, `î` is not in [a-z0-9] and collapses to a space,
+    so "beno t blanchon" fails to match "benoit blanchon" -- a transcription
+    artefact, not a paraphrase. The check exists to catch invented or reworded
+    analogues, and it still does: every other character must line up exactly.
+    """
+    folded = unicodedata.normalize("NFKD", str(text))
+    folded = "".join(c for c in folded if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", " ", folded.lower()).strip()
+
+
+def _load_official_intents() -> set[str] | None:
+    """Every official intent, normalised. None when the corpus is unavailable.
+
+    None disables the analogue cross-check rather than failing every bundle:
+    a missing benchmark file is an environment problem, and turning it into 600
+    identical failures would bury the real ones.
+    """
+    if not BENCHMARK.is_file():
+        return None
+    intents: set[str] = set()
+    for line in BENCHMARK.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            intents.add(_normalise_intent(json.loads(line)["ques"]))
+        except Exception:  # noqa: BLE001
+            continue
+    return intents or None
+
+
+OFFICIAL_INTENTS = _load_official_intents()
+
+# Set by --medium-is-exactly-two; off by default so the three prior
+# snapshots and batch 5 still validate unchanged.
+MEDIUM_IS_EXACTLY_TWO = False
+
+
 def check_bundle(bundle: Path, seen: dict[str, Path]) -> list[str]:
     problems: list[str] = []
 
@@ -280,6 +528,178 @@ def check_bundle(bundle: Path, seen: dict[str, Path]) -> list[str]:
         elif abs(total - 1.0) > 1e-9:
             fail(f"hard task reward components sum to {total!r}, expected exactly 1.0")
 
+    # ---- batch-4 style contract (TASK4.md S3) ----------------------------
+    reward_path = bundle / manifest.reward_path
+    style = meta.get("style")
+    if style is None:
+        fail("task.json metadata.style is missing; must be 'terse' or 'explicit'")
+    elif style not in STYLES:
+        fail(f"task.json metadata.style {style!r} is not one of {sorted(STYLES)}")
+    elif style == "terse":
+        text = (instruction or {}).get("task_instruction") or ""
+        words = len(str(text).split())
+        if words > TERSE_MAX_WORDS:
+            fail(f"terse instruction is {words} words, over the {TERSE_MAX_WORDS}-word cap (S3.1)")
+        leaks = preservation_components(reward_path)
+        if leaks:
+            fail(
+                f"terse reward pays for inaction via component(s) {leaks!r}; assert the "
+                "exact resulting collection instead (S3.2/S3.3)"
+            )
+        if "exclusion_constraint" in (meta.get("hard_criteria") or []):
+            fail(
+                "terse task claims hard_criteria 'exclusion_constraint', which scores the "
+                "untouched part and is unavailable in the terse set (S3.2)"
+            )
+
+    # S7: rewards read current_state only. This is the logic half of S3.2 --
+    # a neutrally-named component that is really `initial != current` still
+    # pays for a diff, and no name scan can see it.
+    if reads_initial_state(reward_path):
+        fail(
+            "reward.py reads `initial_state`; every reward must read `current_state` "
+            "only and never diff against the baseline (S7)"
+        )
+
+    # ---- batch-5 skill contract (docs/SKILL_TAXONOMY.md) ------------------
+    # Batches 1-4 chose tasks by topic and only ever checked intent *shape*.
+    # A task can look like a WebArena task, score like one, and exercise no
+    # skill the benchmark exercises -- skill is what transfers, so it is now
+    # recorded per bundle and gated here rather than asserted in a report.
+    skills = meta.get("skills")
+    if skills is None:
+        fail(
+            "task.json metadata.skills is missing; list the skill ids this task "
+            f"exercises, drawn from {sorted(RETRIEVAL_SKILLS | ACTION_SKILLS)}"
+        )
+    elif not isinstance(skills, list) or not skills:
+        fail(f"task.json metadata.skills must be a non-empty list, got {skills!r}")
+    else:
+        unknown = [s for s in skills if s not in ALL_SKILLS]
+        if unknown:
+            fail(
+                f"task.json metadata.skills contains unknown id(s) {unknown!r}; "
+                "valid ids are defined in docs/SKILL_TAXONOMY.md"
+            )
+        elif len(set(skills)) != len(skills):
+            fail(f"task.json metadata.skills repeats an id: {skills!r}")
+        else:
+            # Difficulty is derived from the chain this round rather than
+            # imposed as a quota, so the two must actually agree. A "hard"
+            # task built from one retrieval and one action is a medium whose
+            # label drifted -- the exact error batch 4 spent time on.
+            retrieval = [s for s in skills if s in RETRIEVAL_SKILLS]
+            action = [s for s in skills if s in ACTION_SKILLS]
+            if not action:
+                fail(
+                    f"metadata.skills {skills!r} names no action skill; a task with "
+                    "no mutation has no verifiable writeback (S3.5)"
+                )
+            if not retrieval:
+                fail(
+                    f"metadata.skills {skills!r} names no retrieval skill; the target "
+                    "must be derived from the site, not handed over in the instruction"
+                )
+            # Batch 6 is all-medium by request, and a "medium" there is
+            # exactly one retrieval feeding one action. Without this, a 3-skill
+            # chain labelled medium passes -- which is a hard task wearing the
+            # wrong label, and the whole point of an all-medium batch is that
+            # the difficulty is uniform.
+            if MEDIUM_IS_EXACTLY_TWO and difficulty == "medium" and len(skills) != 2:
+                fail(
+                    f"medium task declares {len(skills)} skills {skills!r}; this batch "
+                    "requires exactly one retrieval and one action. Split it into two "
+                    "tasks or drop a step -- do not relabel it hard"
+                )
+            if difficulty == "medium" and len(skills) < 2:
+                fail(
+                    f"medium task exercises {len(skills)} skill(s); a medium is at "
+                    "least one retrieval feeding one action"
+                )
+            if difficulty == "hard" and len(skills) < 3:
+                fail(
+                    f"hard task exercises only {len(skills)} skill(s) {skills!r}; a hard "
+                    "task is a chain of 3+ where each step's output constrains the next. "
+                    "Relabel it medium rather than padding the list"
+                )
+            if difficulty == "hard" and len(retrieval) < 2 and len(action) < 2:
+                fail(
+                    f"hard task {skills!r} has one retrieval and one action padded to "
+                    "three; a hard chain needs either two distinct retrievals or one "
+                    "retrieval feeding two dependent actions"
+                )
+
+    # Resembling an official task is the point of batch 5. Reproducing one
+    # verbatim is contamination: the benchmark is the evaluation set, and a
+    # word-for-word row in the training data raises the measured score without
+    # adding capability.
+    if OFFICIAL_INTENTS is not None:
+        intent_text = (instruction or {}).get("task_instruction") or ""
+        if _normalise_intent(intent_text) in OFFICIAL_INTENTS:
+            fail(
+                "task_instruction reproduces an official benchmark intent verbatim, "
+                "which contaminates the evaluation set. Keep the skill and the shape; "
+                "change the entities and values"
+            )
+
+    # Batch 5 uses `initial_setup.py` deliberately -- to break ties, plant
+    # distractors, and give conditional branches something real to branch on.
+    # That changes what the task is evidence of (moderation GIVEN rights is not
+    # the acquisition of rights), so it may not be silent.
+    if (bundle / "initial_setup.py").is_file():
+        injected = meta.get("injected_preconditions")
+        if not isinstance(injected, list) or not injected:
+            fail(
+                "bundle ships initial_setup.py but task.json metadata."
+                "injected_preconditions is missing or empty; list what state was "
+                "written and why, e.g. ['moderatorOf: [\"DIY\"] — the 95 seeded "
+                "forums have no moderators, so forum edit 403s without it']"
+            )
+        elif not all(isinstance(entry, str) and entry.strip() for entry in injected):
+            fail(
+                f"metadata.injected_preconditions must be a list of non-empty "
+                f"strings, got {injected!r}"
+            )
+
+    chain = meta.get("skill_chain")
+    if not isinstance(chain, str) or not chain.strip():
+        fail(
+            "task.json metadata.skill_chain is missing; state in one line how each "
+            "step's output feeds the next, e.g. 'date-range report -> sum -> write "
+            "the figure into a CMS block'"
+        )
+
+    # The honesty check. An author who cannot name a real benchmark task the
+    # design is aimed at has not built an in-distribution task, and inventing
+    # an analogue is worse than admitting there is none.
+    analogues = meta.get("official_analogues")
+    if not isinstance(analogues, list) or not analogues:
+        fail(
+            "task.json metadata.official_analogues is missing; quote at least one "
+            "real intent from webarena_benchmarks/webarena.jsonl this task is "
+            "in-distribution with"
+        )
+    elif OFFICIAL_INTENTS is not None:
+        missing = [a for a in analogues if _normalise_intent(a) not in OFFICIAL_INTENTS]
+        if missing:
+            fail(
+                f"metadata.official_analogues entries not found in the benchmark "
+                f"corpus: {missing!r}. Quote the intent verbatim, do not paraphrase "
+                "or invent one"
+            )
+
+    # ---- batch-4 start_path contract (TASK4.md S5) -----------------------
+    start_path = (instruction or {}).get("start_path")
+    if isinstance(start_path, str):
+        if not start_path.startswith("/"):
+            fail(f"start_path {start_path!r} must begin with '/'")
+        for app in manifest.apps:
+            if app.start_path != start_path:
+                fail(
+                    f"task.json apps[].start_path {app.start_path!r} disagrees with "
+                    f"task_instruction.json start_path {start_path!r}"
+                )
+
     # NeMo row
     try:
         row = json.loads((bundle / "nemo_task.json").read_text(encoding="utf-8"))
@@ -342,6 +762,12 @@ def check_bundle(bundle: Path, seen: dict[str, Path]) -> list[str]:
         # escapes were eaten by a non-raw triple-quoted string literal.
         for problem in broken_inline_json(resolved):
             fail(f"{label} {problem}")
+        # A name read but never bound compiles and passes static validation, then
+        # raises NameError at runtime -- often only on the branch a *correct*
+        # rollout reaches.
+        missing = unbound_names(resolved)
+        if missing:
+            fail(f"{label} references undefined name(s): {sorted(missing)}")
 
     if isinstance(setup_code, str):
         for banned in ("launch_gui", "google-chrome", "/tmp/", "webdriver", "playwright"):
@@ -377,6 +803,11 @@ def main() -> int:
     parser.add_argument("roots", nargs="+", help="directories holding <task_id>/task.json bundles")
     parser.add_argument("--quiet", action="store_true", help="only print failures")
     parser.add_argument(
+        "--medium-is-exactly-two",
+        action="store_true",
+        help="a `medium` task must declare exactly 2 skills (1 retrieval + 1 action)",
+    )
+    parser.add_argument(
         "--prior-batch",
         action="append",
         default=[],
@@ -392,6 +823,20 @@ def main() -> int:
         help=(
             "required per-root difficulty counts, e.g. 1:4:5 for a 10-task batch "
             "or 5:20:25 for a finished site. Checked once per root directory."
+        ),
+    )
+    parser.add_argument(
+        "--style-split",
+        metavar="TERSE:EXPLICIT",
+        help="required per-root metadata.style counts, e.g. 113:37 (TASK4.md S3.4)",
+    )
+    parser.add_argument(
+        "--root-start-min",
+        type=float,
+        metavar="PCT",
+        help=(
+            "minimum share of bundles in each root whose start_path is '/'. "
+            "TASK4.md S5.1 sets the batch floor at 70 and the per-site floor at 60."
         ),
     )
     args = parser.parse_args()
@@ -410,7 +855,13 @@ def main() -> int:
         e, m, h = (int(x) for x in args.difficulty_split.split(":"))
         want_split = {"easy": e, "medium": m, "hard": h}
 
+    want_style = None
+    if args.style_split:
+        t, x = (int(v) for v in args.style_split.split(":"))
+        want_style = {"terse": t, "explicit": x}
+
     failed = 0
+    root_failures = 0
     total = 0
     for raw in args.roots:
         root = Path(raw).resolve()
@@ -421,12 +872,26 @@ def main() -> int:
         total += len(bundles)
 
         split = {"easy": 0, "medium": 0, "hard": 0}
+        styles = {"terse": 0, "explicit": 0}
+        root_starts = 0
+        retrieval = 0
+        deep_starts: list[str] = []
         for bundle in bundles:
             problems = check_bundle(bundle, seen)
             try:
-                d = json.loads((bundle / "task_instruction.json").read_text())["difficulty"]
+                inst = json.loads((bundle / "task_instruction.json").read_text())
+                meta = json.loads((bundle / "task.json").read_text()).get("metadata") or {}
+                d = inst["difficulty"]
                 if d in split:
                     split[d] += 1
+                if meta.get("style") in styles:
+                    styles[meta["style"]] += 1
+                if meta.get("shape") == "retrieval_writeback":
+                    retrieval += 1
+                if inst.get("start_path") == "/":
+                    root_starts += 1
+                else:
+                    deep_starts.append(f"{bundle.name} -> {inst.get('start_path')!r}")
             except Exception:  # noqa: BLE001 - already reported by check_bundle
                 pass
             if problems:
@@ -437,8 +902,35 @@ def main() -> int:
             elif not args.quiet:
                 print(f"PASS {bundle}")
 
+        if bundles:
+            pct = 100.0 * root_starts / len(bundles)
+            print(
+                f"{root.name}: {len(bundles)} bundles | "
+                f"difficulty {split['easy']}:{split['medium']}:{split['hard']} | "
+                f"style {styles['terse']}T/{styles['explicit']}E | "
+                f"start_path='/' {root_starts}/{len(bundles)} ({pct:.1f}%) | "
+                f"retrieval_writeback {retrieval}"
+            )
+            if args.root_start_min is not None and pct < args.root_start_min:
+                root_failures += 1
+                print(f"FAIL {root}")
+                print(
+                    f"     - only {pct:.1f}% of bundles start at '/', below the required "
+                    f"{args.root_start_min:.0f}% (TASK4.md S5.1)"
+                )
+                for line in deep_starts[:20]:
+                    print(f"       deep: {line}")
+
+        if want_style is not None and styles != want_style:
+            root_failures += 1
+            print(f"FAIL {root}")
+            print(
+                f"     - style split is {styles['terse']} terse / {styles['explicit']} "
+                f"explicit, required {args.style_split}"
+            )
+
         if want_split is not None and split != want_split:
-            failed += 1
+            root_failures += 1
             print(f"FAIL {root}")
             print(
                 f"     - difficulty split is "
@@ -447,7 +939,9 @@ def main() -> int:
             )
 
     print(f"\n{total - failed}/{total} bundles passed the gate")
-    return 1 if failed else 0
+    if root_failures:
+        print(f"{root_failures} corpus-level requirement(s) unmet (split / style / start_path)")
+    return 1 if (failed or root_failures) else 0
 
 
 if __name__ == "__main__":

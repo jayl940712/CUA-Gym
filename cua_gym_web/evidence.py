@@ -114,6 +114,7 @@ class EvidenceCollector:
         browser: BrowserEvidence,
         snapshots: dict[str, dict[str, Any]],
         lane_name: str,
+        answer: str | None = None,
     ) -> dict[str, Any]:
         apps: dict[str, Any] = {}
         open_pages = browser.open_pages()
@@ -143,6 +144,10 @@ class EvidenceCollector:
             "task_id": task.task_id,
             "instruction": task.instruction,
             "lane": lane_name,
+            # The replay's reported answer, mirroring CUA_GYM_AGENT_ANSWER at
+            # rollout time (cuagym/browser_worker.py:303). "" when absent -- the
+            # initial lane never answers, so answer-scored rewards read 0.0 there.
+            "agent_answer": answer or "",
             "apps": apps,
             "observations": observations,
         }

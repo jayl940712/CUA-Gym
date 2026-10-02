@@ -74,7 +74,19 @@ The task manifest is created by `scripts/import_webarena_tasks.py`.
      `golden_replay.py` into it.
    - Spawn `reward-audit` against that sandbox.
    - Copy its `REVIEW.md` into the run output.
-   - Stop when `verification.passed` is true and REVIEW says PASS.
+   - **Run the click-reachability gate on the replay:**
+
+     ```bash
+     python3 scripts/check_reachability.py <output>/golden_replay.py
+     ```
+
+     If it fails, the replay reached a scored control by typing or constructing
+     a URL, which no agent can do. **Route it back to `golden-browser` with the
+     gate's output** and require a replay that navigates only by clicking
+     rendered links, buttons and form controls. Do not accept the run until this
+     gate passes.
+   - Stop when `verification.passed` is true, REVIEW says PASS, **and the
+     reachability gate passes**.
 12. Route replay/UI failures to `golden-browser`. Route scoring and false
     positive/negative failures to `reward-gen`. Never reveal replay source to
     reward agents.
@@ -108,6 +120,17 @@ All conditions are mandatory:
     audited code strings.
 11. Canonical bundle files remain available independently of the inlined NeMo
     export.
+12. **`golden_replay.py` passes `scripts/check_reachability.py`** — it reaches
+    every scored control by clicking rendered links, buttons and form controls,
+    with no `page.goto()`, no URL assembly (`urljoin`/`urlsplit`), no destination
+    derived from `page.url`, and no `new_page()`. The runner has already landed
+    the lane on `start_path`, so a correct replay needs no navigation of its own.
+    A documented `# REACHABILITY-OK: <reason>` waiver is the only exception.
+
+    This condition exists because a typed URL executes perfectly: the reward
+    still scores 0.0 -> 1.0 and the audit still passes, while the task is
+    unsolvable by any agent. Batch 3 shipped 37 such tasks and batch 4 produced
+    190 before this gate was added.
 
 ## Completion
 

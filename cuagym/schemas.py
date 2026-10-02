@@ -47,6 +47,12 @@ class CuaGymTaskInfo(BaseModel):
     app_dir: str
     eval_reward_code: str
     initial_setup: str | None = None
+    # Set only for tasks that run against a site OUTSIDE the CUA-Gym hub -- the
+    # OpenStreetMap deployment, which is a real Rails app rather than a mock.
+    # Such a site is not in APP_DIRS, has no consecutive hub port to resolve,
+    # and has no /go?sid= state API, so the episode opens it directly and adds
+    # no sid. Left unset, task resolution is unchanged for every hub task.
+    external_base_url: str | None = None
 
 
 class CuaGymResourcesServerConfig(WebArenaResourcesServerConfig):

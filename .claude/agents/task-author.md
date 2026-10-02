@@ -258,19 +258,36 @@ object as one line in:
 output/task_generation/<topic-slug>/nemo_tasks.jsonl
 ```
 
-Validate every reward:
+## Do not validate your own output
 
-```bash
-python3 -c "
-from pathlib import Path
-from cua_gym_web.reward import read_reward_requirements, validate_reward_source
-p = Path('<task-dir>/reward.py')
-r = Path('<task-dir>/requirements.txt')
-allowed = read_reward_requirements(r if r.exists() else None)
-validate_reward_source(p.read_text(), str(p), allowed)
-print('PASS', p)
-"
-```
+Write the bundles and stop. Do **not** run `preflight_bundles.py`,
+`check_reachability.py`, `empty_state_probe.py`, `validate_reward_source`, or
+any driver/replay/Playwright analysis while authoring.
+
+This is deliberate, and it is not a lowering of the bar. Validation is a
+separate phase with its own agents (`orchestrator` -> `reward-gen`,
+`golden-browser`, `reward-audit`) and its own gates, and it runs on every
+bundle regardless. Batch 4 measured the duplication: inline validation was the
+largest single cost in the authoring wave and did not improve the bundles that
+came out of it, because the authoring agent's fixes were re-derived — and in
+one documented case overwritten — by the verification agents afterwards.
+
+Write reward code that would pass. Do not prove that it does.
+
+The constraints it would have checked, so you can meet them by construction:
+
+- allowed imports are exactly `collections`, `datetime`, `decimal`,
+  `fractions`, `json`, `math`, `re`, `statistics`, `urllib.parse`;
+  `hashlib` is NOT importable;
+- inline JSON fixtures as `json.loads(r"""...""")` — raw string, always, or the
+  Python parser eats the escapes before `json.loads` sees them;
+- no bare `true`/`false`/`null` in Python source (what `json.dumps` emits) —
+  it compiles and raises `NameError` at episode time;
+- every name read must be bound; an unbound name passes every static check and
+  fires only on a correct replay;
+- read `current_state` only, never diff against `initial_state`.
+
+Use `Bash` only to READ the mock source and seed data.
 
 Finally write:
 
@@ -298,17 +315,24 @@ supported sites, and any rejected candidate ideas.
 
 Before finishing:
 
-- no duplicate or near-duplicate questions;
-- no copied benchmark questions;
-- no answer-only tasks;
+- **no benchmark intent reproduced verbatim.** Resembling an official task is
+  wanted — that is what makes a task in-distribution. Copying one word for word
+  is not: the benchmark is the evaluation set, and a verbatim row in the
+  training data inflates the measured score without adding capability. Same
+  skill, same shape, different entities and values;
+- near-duplicates of *prior batches* are acceptable when the skill chain or the
+  entities differ; duplicate `task_id`s never are;
+- no answer-only tasks — `cua_gym_web/importer.py:152` rejects them as having no
+  verifiable browser writeback;
 - every route/entity exists;
 - every bundle retains `task_instruction.json`, `task.json`,
   `initial_setup.py` (when setup is needed), `reward.py`, and optional
   `requirements.txt` after NeMo export;
-- every reward passes static validation;
-- every setup/reward program compiles after placeholder substitution;
-- every NeMo row validates against `WebArenaTaskRow` +
-  `CuaGymTaskInfo`;
+- every reward is *written to* pass static validation, and every setup/reward
+  program is written to compile after placeholder substitution, and every NeMo
+  row is written to validate against `WebArenaTaskRow` + `CuaGymTaskInfo` —
+  these are construction requirements, not things you run and check. See
+  "Do not validate your own output" above;
 - inlined setup contains no GUI launch or `/tmp` SID file;
 - inlined reward contains `__CUA_GYM_SID__`, a resolvable app placeholder,
   `/go?sid=`, and `REWARD:`;

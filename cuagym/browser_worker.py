@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
 import subprocess
@@ -168,10 +169,14 @@ class CuaGymBrowserWorker:
         task = WebArenaTaskRow.model_validate(task_payload)
         info = task_info_from_row(task)
 
-        # Resolve the app's port before running setup: an unknown app_dir must
-        # fail before the program mutates hub state for an episode that could
-        # never be opened.
-        base_url = app_url(info.app_dir, self.config.hub_base_url, self.config.hub_base_port)
+        # Resolve the app's location before running setup: an unresolvable app
+        # must fail before the program mutates hub state for an episode that
+        # could never be opened. A task carrying external_base_url names a site
+        # outside the hub (the OpenStreetMap deployment), which has no hub port.
+        if info.external_base_url:
+            base_url = info.external_base_url.rstrip("/")
+        else:
+            base_url = app_url(info.app_dir, self.config.hub_base_url, self.config.hub_base_port)
 
         sid = str(uuid.uuid4())
         if info.initial_setup:
@@ -192,7 +197,10 @@ class CuaGymBrowserWorker:
         self.sid = sid
         self.reward_code = info.eval_reward_code
 
-        start_url = f"{base_url}/?sid={sid}"
+        # An external site has no sid-scoped state to isolate, and appending an
+        # unknown query parameter to a real deployment is at best noise.
+        start_url = (f"{base_url}/" if info.external_base_url
+                     else f"{base_url}/?sid={sid}")
         self.context, self.page = self.loop.run_until_complete(
             _open_episode(
                 self.browser,
@@ -289,6 +297,20 @@ class CuaGymBrowserWorker:
             raise RuntimeError("No CUA-Gym episode is active")
         details: dict[str, Any] = {"sid": self.sid}
         reward = 0.0
+        # The URLs the episode ended on, mirroring the "final_urls" list the
+        # verification path builds in cua_gym_web/evidence.py. Map-site rewards
+        # gate their answer component on having actually routed, and the proof
+        # of that lives in the /directions URL -- without this the gate reads an
+        # empty list at rollout time and every such task trains at reward 0.0
+        # while verifying at 1.0.
+        final_urls: list[str] = []
+        for candidate in list(getattr(self.context, "pages", []) or [self.page]):
+            try:
+                if candidate.is_closed():
+                    continue
+                final_urls.append(candidate.url)
+            except Exception:  # noqa: BLE001 -- a dead page must not fail scoring
+                continue
         try:
             reward_code = substitute(
                 self.reward_code,
@@ -302,6 +324,7 @@ class CuaGymBrowserWorker:
                 extra_env={
                     "CUA_GYM_AGENT_ANSWER": answer or "",
                     "CUA_GYM_AGENT_STATUS": status or "",
+                    "CUA_GYM_FINAL_URLS": json.dumps(final_urls),
                 },
             )
             parsed = parse_reward(result.stdout)

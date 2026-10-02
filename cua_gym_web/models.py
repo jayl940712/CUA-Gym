@@ -38,6 +38,11 @@ class AppSpec:
     start_path: str = "/"
     initial_state: str | None = None
     golden_state: str | None = None
+    # Apps that expose no /go?sid= state API (a real deployment rather than a
+    # CUA-Gym mock -- e.g. the OpenStreetMap Rails app). Such an app gets no
+    # StateClient, no sid on its URLs, and empty state dicts in the evidence
+    # document. Rewards for it must score final_urls / final_text / agent_answer.
+    stateless: bool = False
 
     def __post_init__(self) -> None:
         if not MOCK_RE.fullmatch(self.name):

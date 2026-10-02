@@ -7,6 +7,7 @@ import importlib.util
 import inspect
 import json
 import re
+import sys
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,10 +16,10 @@ from typing import Any, Awaitable, Callable
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
 from .evidence import BrowserEvidence, EvidenceCollector
-from .models import EvaluationResult, WebTaskManifest
+from .models import AppSpec, EvaluationResult, WebTaskManifest
 from .registry import Endpoint, EndpointRegistry
 from .reward import PythonRewardRunner
-from .state import SessionHandle, SessionMode, StateClient, with_sid
+from .state import SessionHandle, SessionMode, StateApiError, StateClient, with_sid
 
 ReplayCallable = Callable[["BrowserLane", WebTaskManifest], Any | Awaitable[Any]]
 
@@ -61,6 +62,10 @@ class BrowserLane:
     sessions: dict[str, SessionHandle]
     active_source: str
     browser_errors: list[str] = field(default_factory=list)
+    # Set only on the replay lane, from the replay's return value. The initial
+    # lane never runs a replay, so it stays None -> "" in the evidence document,
+    # which is what keeps an answer-scored reward at 0.0 on the initial lane.
+    answer: str | None = None
 
     def page(self, source_name: str | None = None) -> Page:
         return self.pages[source_name or self.active_source]
@@ -130,6 +135,11 @@ class WebTaskRunner:
         endpoints = {
             app.source_name: self.registry.resolve(app) for app in self.task.apps
         }
+        # Only stateful apps get a StateClient. Every `for source, client in
+        # clients.items()` loop below then skips stateless apps for free, which
+        # is what stops a /go?sid= call from raising StateApiError against a
+        # deployment that has no such endpoint (OSM returns 404 there).
+        stateful = {app.source_name for app in self.task.apps if not app.stateless}
         clients = {
             source: StateClient(
                 request,
@@ -138,6 +148,7 @@ class WebTaskRunner:
                 admin_token=self.admin_token,
             )
             for source, endpoint in endpoints.items()
+            if source in stateful
         }
         initial_states = await self._initial_states(clients)
         lanes: list[BrowserLane] = []
@@ -183,7 +194,14 @@ class WebTaskRunner:
                 lanes.append(replay_lane)
                 result = replay(replay_lane, self.task)
                 if inspect.isawaitable(result):
-                    await result
+                    result = await result
+                # A replay may report an answer, mirroring the agent's
+                # terminate(status, answer) at rollout time. Existing replays
+                # return None, so this is a no-op for every task written so far.
+                if isinstance(result, str):
+                    replay_lane.answer = result
+                elif isinstance(result, dict) and isinstance(result.get("answer"), str):
+                    replay_lane.answer = result["answer"]
                 await self._drain_writes(replay_lane, clients)
                 replay_result, _ = await self._evaluate_lane(replay_lane, clients)
                 await self._capture_lane(replay_lane, clients)
@@ -218,6 +236,8 @@ class WebTaskRunner:
     ) -> dict[str, dict[str, Any]]:
         states: dict[str, dict[str, Any]] = {}
         for app in self.task.apps:
+            if app.stateless:
+                continue
             if app.initial_state:
                 states[app.source_name] = _load_json_object(
                     self.task_dir / app.initial_state
@@ -241,8 +261,48 @@ class WebTaskRunner:
     ) -> BrowserLane:
         sid = _sid(self.task.task_id, name, self.run_id)
         sessions: dict[str, SessionHandle] = {}
-        for source, state in states.items():
-            sessions[source], _ = await clients[source].establish(sid, state)
+        setup_script = self.task_dir / "initial_setup.py"
+        use_setup_script = setup_script.is_file()
+        if use_setup_script:
+            if self.mode is not SessionMode.LEGACY:
+                raise ValueError(
+                    "task_dir/initial_setup.py setup scripts only support legacy mode"
+                )
+            for app in self.task.apps:
+                source = app.source_name
+                await self._run_initial_setup(setup_script, app, sid, endpoints[source])
+                snapshot = await clients[source].go(sid)
+                initial = snapshot.get("initial_state")
+                current = snapshot.get("current_state")
+                if not isinstance(initial, dict) or initial != current:
+                    raise StateApiError(
+                        f"{source}: initial_setup.py did not establish equal "
+                        "initial and current state"
+                    )
+                if snapshot.get("state_diff"):
+                    raise StateApiError(
+                        f"{source}: initial_setup.py left a non-empty state diff"
+                    )
+                sessions[source] = SessionHandle(
+                    mock_name=endpoints[source].mock_name,
+                    base_url=endpoints[source].base_url,
+                    sid=sid,
+                    mode=SessionMode.LEGACY,
+                )
+        else:
+            for source, state in states.items():
+                sessions[source], _ = await clients[source].establish(sid, state)
+
+        # Stateless apps establish nothing; they still need a handle so the
+        # navigation block below can look one up.
+        for app in self.task.apps:
+            if app.stateless and app.source_name not in sessions:
+                sessions[app.source_name] = SessionHandle(
+                    mock_name=endpoints[app.source_name].mock_name,
+                    base_url=endpoints[app.source_name].base_url,
+                    sid="",
+                    mode=SessionMode.LEGACY,
+                )
 
         context = await browser.new_context(viewport={"width": 1440, "height": 900})
         try:
@@ -270,12 +330,17 @@ class WebTaskRunner:
                 )
                 session = sessions[app.source_name]
                 if session.mode is SessionMode.HARDENED:
-                    await page.goto(
-                        session.launch_url or "", wait_until="domcontentloaded"
-                    )
-                target = with_sid(
-                    f"{endpoints[app.source_name].base_url}{app.start_path}",
-                    session.browser_sid,
+                    launch_url = session.launch_url or ""
+                    if launch_url and not launch_url.lower().startswith(
+                        ("http://", "https://")
+                    ):
+                        launch_url = f"{endpoints[app.source_name].base_url}{launch_url}"
+                    await page.goto(launch_url, wait_until="domcontentloaded")
+                base_target = f"{endpoints[app.source_name].base_url}{app.start_path}"
+                target = (
+                    base_target
+                    if app.stateless
+                    else with_sid(base_target, session.browser_sid)
                 )
                 await page.goto(target, wait_until="domcontentloaded")
                 pages[app.source_name] = page
@@ -292,6 +357,52 @@ class WebTaskRunner:
         except Exception:
             await context.close()
             raise
+
+    async def _run_initial_setup(
+        self,
+        script_path: Path,
+        app: AppSpec,
+        sid: str,
+        endpoint: Endpoint,
+    ) -> None:
+        """Run a task bundle's optional ``initial_setup.py`` against one lane.
+
+        The script talks to the mock's own state API (``/post``, ``/go``)
+        exactly as it would under the NeMo-Gym runtime — it is executed as a
+        standalone subprocess, never imported, and never touches the browser.
+        Only the two placeholders it declares (``__CUA_GYM_SID__`` and its
+        app's ``__<base_url_env>__``) are substituted; anything else left
+        unresolved is a hard error rather than a silently wrong endpoint.
+        """
+        code = script_path.read_text(encoding="utf-8")
+        code = code.replace("__CUA_GYM_SID__", sid)
+        code = code.replace(f"__{app.base_url_env}__", endpoint.base_url)
+        if "__CUA_GYM_" in code:
+            raise ValueError(
+                f"{app.source_name}: initial_setup.py has unresolved __CUA_GYM_*__ "
+                "placeholders"
+            )
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            code,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            raise RuntimeError(f"{app.source_name}: initial_setup.py timed out")
+        if proc.returncode != 0 or (
+            b"SETUP OK" not in stdout and b"SETUP_OK" not in stdout
+        ):
+            raise RuntimeError(
+                f"{app.source_name}: initial_setup.py failed (exit={proc.returncode})\n"
+                f"stdout: {stdout.decode(errors='replace')[:2000]}\n"
+                f"stderr: {stderr.decode(errors='replace')[:2000]}"
+            )
 
     async def _maybe_oracle(
         self,
@@ -367,10 +478,17 @@ class WebTaskRunner:
         lane: BrowserLane,
         clients: dict[str, StateClient],
     ) -> tuple[EvaluationResult, dict[str, Any]]:
-        snapshots = {
+        snapshots: dict[str, dict[str, Any]] = {
             source: await client.go(lane.sid)
             for source, client in clients.items()
         }
+        # A stateless app has no /go?sid=; its evidence carries empty state so
+        # rewards fall back to final_urls / final_text / agent_answer.
+        for app in self.task.apps:
+            snapshots.setdefault(
+                app.source_name,
+                {"initial_state": {}, "current_state": {}, "state_diff": {}},
+            )
         browser = lane.evidence(
             {
                 source: snapshot.get("current_state", {})
@@ -378,7 +496,7 @@ class WebTaskRunner:
             }
         )
         immutable = await self.evidence_collector.collect(
-            self.task, browser, snapshots, lane.name
+            self.task, browser, snapshots, lane.name, answer=lane.answer
         )
         (self.output_dir / f"{lane.name}-evidence.json").write_text(
             json.dumps(immutable, indent=2, ensure_ascii=False) + "\n",
