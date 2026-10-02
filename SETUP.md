@@ -13,7 +13,7 @@ Everything here was verified against a working deployment on 2026-10-02.
 
 | Thing | Why a clone lacks it | Section |
 |---|---|---|
-| `hub/` at the right commit | Submodule pin is 3 months stale; locally it's a symlink | §1 |
+| `hub/` checked out | Submodules aren't fetched by a plain `git clone` | §1 |
 | Running mocks on 8000–8004 | Nothing is deployed on a fresh box | §2 |
 | `webarena_benchmarks/` | Sibling repo, not a submodule, not tracked | §3 |
 | `.env` | Gitignored | §4 |
@@ -21,23 +21,33 @@ Everything here was verified against a working deployment on 2026-10-02.
 
 ---
 
-## 1. `hub/` — check out `594c7b1c`, not the submodule pin
+## 1. `hub/` — the submodule, pinned at `594c7b1c` on the jayl940712 fork
 
-**Do not rely on `git submodule update --init` alone.** It resolves to
-`b8207bfc` (2026-05-26), which is three months behind what the tasks were
-authored against.
-
-The history is linear, so there is nothing to reconcile — just a stale pointer:
-
-```
-b8207bfc (May 26) ──► e40c1188 (Aug 18) ──► 594c7b1c (Aug 27)   ← use this
-   ↑ submodule pin      ↑ hub_apps.py HUB_COMMIT
-```
+The submodule points at **`jayl940712/CUA-Gym-Hub`** and is pinned to
+`594c7b1c` (branch `webarena`), so a recursive clone lands on the right commit:
 
 ```bash
-git submodule update --init hub
-git -C hub fetch origin webarena
-git -C hub checkout 594c7b1c419fd744a5bc2d72e9d0e35b15458bc8
+git clone --recurse-submodules -b harness/portable-setup https://github.com/jayl940712/CUA-Gym.git
+# or, in an existing clone:
+git submodule sync hub && git submodule update --init hub
+git -C hub log -1 --format=%h   # must print 594c7b1c
+```
+
+Use `git submodule sync` in a clone made before this change. Without it, the old
+`xlang-ai` URL stays cached in `.git/config`.
+
+**Why the fork, not `xlang-ai/CUA-Gym-Hub`.** Upstream only has `main` and
+`uda`. The `webarena` branch and `594c7b1c` exist only on the jayl940712 fork. On
+`main`, `.gitmodules` still points upstream with a pin at `b8207bfc` (2026-05-26).
+From that state you can't reach `594c7b1c` at all: `git fetch origin webarena`
+fails with `couldn't find remote ref`. TASK.md §10 describes that older pin; this
+branch supersedes it.
+
+The history is linear:
+
+```
+b8207bfc (May 26) ──► e40c1188 (Aug 18) ──► 594c7b1c (Aug 27)   ← pinned here
+   ↑ old pin on main    ↑ hub_apps.py HUB_COMMIT
 ```
 
 **Why `594c7b1c` and not `e40c1188`.** The range contains
@@ -55,7 +65,9 @@ file; that still holds.
 
 > On the original machine `hub` is a **symlink** to `/home/ubuntu/CUA-Gym-Hub/`,
 > so `git status` there shows `T hub` (typechange). Never `git add hub` on such a
-> box — it replaces the submodule entry with a symlink blob.
+> box — it replaces the submodule entry with a symlink blob. To move the pin
+> from such a box, write the gitlink directly:
+> `git update-index --cacheinfo 160000,<sha>,hub`.
 
 ---
 
