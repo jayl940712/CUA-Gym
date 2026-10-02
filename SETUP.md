@@ -122,7 +122,7 @@ ls -L webarena_benchmarks/webarena.jsonl
 >
 > This means TASK.md §4 step 6's advice ("write `output/endpoints.json` and pass
 > it via `--endpoints`") is **not sufficient on its own**. If `.env` still
-> carries the old `http://136.83.9.30:800X/` endpoints, those win and your
+> carries the old `http://<HUB_HOST>:800X/` endpoints, those win and your
 > localhost registry is ignored with no error.
 >
 > **Set the endpoints in `.env` itself.**
@@ -144,6 +144,15 @@ easy to transpose.
 
 `OPENAI_API_KEY` in the original `.env` drives an optional offline quality filter
 only. Nothing in TASK.md needs it; leave it out rather than copying a secret.
+
+> **Placeholders in the task docs.** The `TASK*.md` files were written against a
+> specific deployment, and their hardcoded addresses have been replaced with
+> `<HUB_HOST>` (the five WebArena mocks, in TASK.md / TASK2.md / TASK3.md) and
+> `<OSM_HOST>` (the OpenStreetMap stack, in TASK_MAP.md). Substitute your own
+> host, or `localhost` when running a self-contained box as above. Note that a
+> literal `<HUB_HOST>` left in `.env` **passes** `normalize_base_url()` — it is a
+> structurally valid URL — and only fails later as a connection error per task.
+> Run the §4 resolution check and confirm the printed hosts before launching.
 
 Verify resolution end to end. Note the explicit `load_env()` — nothing loads
 `.env` implicitly, only `batch_orchestrator.py` does, so a bare `python3` would
