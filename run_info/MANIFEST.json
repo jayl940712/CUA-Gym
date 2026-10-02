@@ -1,0 +1,176 @@
+[
+ {
+  "key": "b1",
+  "source": "TASK.md",
+  "dest": "b1__TASK.md",
+  "note": ""
+ },
+ {
+  "key": "b1",
+  "source": "webarena_08_18_batch_200/PROGRESS.md",
+  "dest": "b1__PROGRESS.md",
+  "note": ""
+ },
+ {
+  "key": "b1",
+  "source": "webarena_08_18_batch_200/FLAKY_REPORT.md",
+  "dest": "b1__FLAKY_REPORT.md",
+  "note": ""
+ },
+ {
+  "key": "b2",
+  "source": "TASK2.md",
+  "dest": "b2__TASK2.md",
+  "note": ""
+ },
+ {
+  "key": "b2",
+  "source": "webarena_08_19_batch_200/AUTHOR_BRIEF.md",
+  "dest": "b2__AUTHOR_BRIEF.md",
+  "note": ""
+ },
+ {
+  "key": "b2",
+  "source": "webarena_08_19_batch_200/PROGRESS.md",
+  "dest": "b2__PROGRESS.md",
+  "note": ""
+ },
+ {
+  "key": "b2",
+  "source": "webarena_08_19_batch_200/FLAKY_REPORT.md",
+  "dest": "b2__FLAKY_REPORT.md",
+  "note": ""
+ },
+ {
+  "key": "b3",
+  "source": "TASK3.md",
+  "dest": "b3__TASK3.md",
+  "note": ""
+ },
+ {
+  "key": "b3",
+  "source": "webarena_08_21_batch_600_easy/AUTHOR_BRIEF.md",
+  "dest": "b3__AUTHOR_BRIEF.md",
+  "note": ""
+ },
+ {
+  "key": "b3",
+  "source": "webarena_08_21_batch_600_easy/PROGRESS.md",
+  "dest": "b3__PROGRESS.md",
+  "note": ""
+ },
+ {
+  "key": "b3",
+  "source": "webarena_08_21_batch_600_easy/FLAKY_REPORT.md",
+  "dest": "b3__FLAKY_REPORT.md",
+  "note": ""
+ },
+ {
+  "key": "b4",
+  "source": "TASK4.md",
+  "dest": "b4__TASK4.md",
+  "note": ""
+ },
+ {
+  "key": "b5",
+  "source": "webarena_09_04_skills/BATCH5_CONTRACT.md",
+  "dest": "b5__BATCH5_CONTRACT.md",
+  "note": ""
+ },
+ {
+  "key": "b5",
+  "source": "webarena_09_04_skills/FINAL_REPORT.md",
+  "dest": "b5__FINAL_REPORT.md",
+  "note": ""
+ },
+ {
+  "key": "b5",
+  "source": "webarena_09_04_skills/CORRECTIONS.md",
+  "dest": "b5__CORRECTIONS.md",
+  "note": ""
+ },
+ {
+  "key": "b5",
+  "source": "webarena_09_04_skills/FLAKY_REPORT.md",
+  "dest": "b5__FLAKY_REPORT.md",
+  "note": ""
+ },
+ {
+  "key": "b6",
+  "source": "webarena_09_08_medium_600/BATCH6_CONTRACT.md",
+  "dest": "b6__BATCH6_CONTRACT.md",
+  "note": ""
+ },
+ {
+  "key": "b6",
+  "source": "webarena_09_08_medium_600/FINAL_REPORT.md",
+  "dest": "b6__FINAL_REPORT.md",
+  "note": ""
+ },
+ {
+  "key": "b6",
+  "source": "webarena_09_08_medium_600/CORRECTIONS.md",
+  "dest": "b6__CORRECTIONS.md",
+  "note": ""
+ },
+ {
+  "key": "b6",
+  "source": "webarena_09_08_medium_600/FLAKY_REPORT.md",
+  "dest": "b6__FLAKY_REPORT.md",
+  "note": ""
+ },
+ {
+  "key": "b6",
+  "source": "webarena_09_08_medium_600/CENSUS_ERRATA.md",
+  "dest": "b6__CENSUS_ERRATA.md",
+  "note": ""
+ },
+ {
+  "key": "b6",
+  "source": "output/BATCH6_CONTRACT.md",
+  "dest": "b6__BATCH6_CONTRACT.md",
+  "note": "byte-identical duplicate; not copied twice"
+ },
+ {
+  "key": "b6",
+  "source": "output/FINAL_REPORT.md",
+  "dest": "b6__FINAL_REPORT.md",
+  "note": "byte-identical duplicate; not copied twice"
+ },
+ {
+  "key": "b6",
+  "source": "output/FLAKY_REPORT.md",
+  "dest": "b6__FLAKY_REPORT.md",
+  "note": "byte-identical duplicate; not copied twice"
+ },
+ {
+  "key": "b6",
+  "source": "output/CENSUS_ERRATA.md",
+  "dest": "b6__CENSUS_ERRATA.md",
+  "note": "byte-identical duplicate; not copied twice"
+ },
+ {
+  "key": "b6map",
+  "source": "output/CORRECTIONS.md",
+  "dest": "b6map__CORRECTIONS.md",
+  "note": ""
+ },
+ {
+  "key": "map",
+  "source": "TASK_MAP.md",
+  "dest": "map__TASK_MAP.md",
+  "note": ""
+ },
+ {
+  "key": "map400",
+  "source": "output/map400/FINAL_REPORT.md",
+  "dest": "map400__FINAL_REPORT.md",
+  "note": ""
+ },
+ {
+  "key": "maphard",
+  "source": "output/maphard/FINAL_REPORT.md",
+  "dest": "maphard__FINAL_REPORT.md",
+  "note": ""
+ }
+]
