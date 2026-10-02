@@ -101,11 +101,18 @@ not tracked. `scripts/sample_webarena_inspirations.py` hardcodes
 `PROJECT_ROOT / "webarena_benchmarks" / "webarena.jsonl"`, and TASK.md §5
 requires it for inspiration sampling.
 
+The symlink itself is **also untracked**, so a fresh clone has nothing to
+resolve — you must clone the sibling *and* recreate the link:
+
 ```bash
-git -C .. clone https://github.com/jayl940712/webarena_benchmarks.git
-# verified at 6a29779; the symlink in the repo then resolves
-ls -L webarena_benchmarks/webarena.jsonl
+git -C .. clone https://github.com/jayl940712/webarena_benchmarks.git  # verified at 6a29779
+ln -s ../webarena_benchmarks webarena_benchmarks
+ls -L webarena_benchmarks/webarena.jsonl   # must resolve
 ```
+
+Alternatively, clone it directly to `./webarena_benchmarks` and skip the link —
+only the resolved path matters. Either way `.gitignore`'s `*.jsonl` rule means
+the data never enters this repo.
 
 ---
 
